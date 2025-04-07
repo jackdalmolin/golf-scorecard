@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import Navbar from "./components/Navbar.jsx";
-import TournamentSelector from "./components/TournamentSelector.jsx";
 import { ref, onValue, set } from "firebase/database";
 import { db } from "./firebase";
 
@@ -10,6 +9,7 @@ const ScorecardPage = () => {
   const [selectedTeamName, setSelectedTeamName] = useState(null);
   const [course, setCourse] = useState(null);
   const [teams, setTeams] = useState([]);
+  const [error, setError] = useState("");
 
   // Fetch tournaments once at mount
   useEffect(() => {
@@ -20,8 +20,11 @@ const ScorecardPage = () => {
 
       const keys = Object.keys(data);
       if (keys.length > 0) {
+        // Get the selected tournament from localStorage or use the most recent one
+        const savedTournament = localStorage.getItem("selected-tournament");
         const mostRecent = keys.sort().reverse()[0];
-        setSelectedTournament(mostRecent);
+        const tournamentToSelect = savedTournament && keys.includes(savedTournament) ? savedTournament : mostRecent;
+        setSelectedTournament(tournamentToSelect);
       }
     });
   }, []);
@@ -31,43 +34,117 @@ const ScorecardPage = () => {
     if (selectedTournament && tournaments[selectedTournament]) {
       const { course, teams } = tournaments[selectedTournament];
       setCourse(course);
-      setTeams(teams || []);
+      
+      // Ensure teams is an array and initialize scores and notes arrays if they don't exist
+      let teamsArray = [];
+      if (Array.isArray(teams)) {
+        teamsArray = teams;
+      } else if (teams && typeof teams === 'object') {
+        teamsArray = Object.values(teams);
+      }
+      
+      // Initialize missing scores and notes for each team
+      teamsArray = teamsArray.map(team => {
+        return {
+          ...team,
+          scores: team.scores || Array(18).fill(null),
+          notes: team.notes || Array(18).fill("")
+        };
+      });
+      
+      setTeams(teamsArray);
+      
+      // Try to select a team from localStorage or the first one
+      const savedTeam = localStorage.getItem("focused-team-name");
+      if (savedTeam && teamsArray.some(t => t.name === savedTeam)) {
+        setSelectedTeamName(savedTeam);
+      } else if (teamsArray.length > 0) {
+        setSelectedTeamName(teamsArray[0].name);
+      }
     }
   }, [selectedTournament, tournaments]);
 
   const updateScore = (holeIdx, val) => {
-    const updated = [...teams];
-    const teamIndex = updated.findIndex((t) => t.name === selectedTeamName);
-    if (teamIndex === -1) return;
+    try {
+      const updated = [...teams];
+      const teamIndex = updated.findIndex((t) => t.name === selectedTeamName);
+      if (teamIndex === -1) {
+        setError("Team not found. Please try again.");
+        return;
+      }
 
-    updated[teamIndex].scores[holeIdx] = val;
-    setTeams(updated);
+      // Make sure scores array exists and is the right length
+      if (!updated[teamIndex].scores) {
+        updated[teamIndex].scores = Array(18).fill(null);
+      }
+      
+      updated[teamIndex].scores[holeIdx] = val;
+      setTeams(updated);
 
-    set(ref(db, `tournaments/${selectedTournament}/teams/${teamIndex}/scores`), updated[teamIndex].scores);
+      // Save to database
+      set(ref(db, `tournaments/${selectedTournament}/teams/${teamIndex}/scores`), updated[teamIndex].scores)
+        .catch(err => {
+          console.error("Error saving score:", err);
+          setError("Failed to save score. Please try again.");
+        });
+    } catch (err) {
+      console.error("Error updating score:", err);
+      setError("An error occurred while updating the score.");
+    }
   };
 
   const updateNote = (holeIdx, val) => {
-    const updated = [...teams];
-    const teamIndex = updated.findIndex((t) => t.name === selectedTeamName);
-    if (teamIndex === -1) return;
+    try {
+      const updated = [...teams];
+      const teamIndex = updated.findIndex((t) => t.name === selectedTeamName);
+      if (teamIndex === -1) {
+        setError("Team not found. Please try again.");
+        return;
+      }
 
-    updated[teamIndex].notes[holeIdx] = val;
-    setTeams(updated);
+      // Make sure notes array exists and is the right length
+      if (!updated[teamIndex].notes) {
+        updated[teamIndex].notes = Array(18).fill("");
+      }
+      
+      updated[teamIndex].notes[holeIdx] = val;
+      setTeams(updated);
 
-    set(ref(db, `tournaments/${selectedTournament}/teams/${teamIndex}/notes`), updated[teamIndex].notes);
+      // Save to database
+      set(ref(db, `tournaments/${selectedTournament}/teams/${teamIndex}/notes`), updated[teamIndex].notes)
+        .catch(err => {
+          console.error("Error saving note:", err);
+          setError("Failed to save note. Please try again.");
+        });
+    } catch (err) {
+      console.error("Error updating note:", err);
+      setError("An error occurred while updating the note.");
+    }
   };
 
   const updatePar = (holeIdx, val) => {
-    const updated = [...(course?.holes || [])];
-    updated[holeIdx] = val || 4;
-    const newCourse = { ...course, holes: updated };
-    setCourse(newCourse);
+    try {
+      const updated = [...(course?.holes || Array(18).fill(4))];
+      updated[holeIdx] = val || 4;
+      const newCourse = { ...course, holes: updated };
+      setCourse(newCourse);
 
-    set(ref(db, `tournaments/${selectedTournament}/course/holes`), updated);
+      // Save to database
+      set(ref(db, `tournaments/${selectedTournament}/course/holes`), updated)
+        .catch(err => {
+          console.error("Error saving par value:", err);
+          setError("Failed to save par value. Please try again.");
+        });
+    } catch (err) {
+      console.error("Error updating par:", err);
+      setError("An error occurred while updating the par value.");
+    }
   };
 
-  const calculateTotal = (scores, holes) =>
-    scores.reduce((acc, s, i) => (s != null ? acc + (s - holes[i]) : acc), 0);
+  const calculateTotal = (scores, holes) => {
+    if (!scores || !holes) return 0;
+    return scores.reduce((acc, s, i) => (s != null ? acc + (s - holes[i]) : acc), 0);
+  };
 
   const getResultStyle = (score, par) => {
     if (score == null) return "text-gray-400";
@@ -81,23 +158,15 @@ const ScorecardPage = () => {
 
   const renderScorecard = () => {
     const teamList = Array.isArray(teams) ? teams : Object.values(teams);
-    let team = teamList.find((t) => t.name === selectedTeamName);
+    const team = teamList.find((t) => t.name === selectedTeamName);
 
-if (team && (!team.scores || !team.notes)) {
-  const teamIndex = teamList.findIndex((t) => t.name === selectedTeamName);
-  const fallbackScores = Array(18).fill(null);
-  const fallbackNotes = Array(18).fill("");
+    if (!team || !course?.holes) {
+      return <p className="text-gray-600">No team or course data found. Please select a valid team and tournament.</p>;
+    }
 
-  if (!team.scores) team.scores = fallbackScores;
-  if (!team.notes) team.notes = fallbackNotes;
-
-  set(ref(db, `tournaments/${selectedTournament}/teams/${teamIndex}/scores`), team.scores);
-  set(ref(db, `tournaments/${selectedTournament}/teams/${teamIndex}/notes`), team.notes);
-}
-
-
-    if (!team || !team.scores || !course?.holes)
-      return <p className="text-gray-600">No team or score data found.</p>;
+    // Ensure scores and notes are initialized
+    if (!team.scores) team.scores = Array(18).fill(null);
+    if (!team.notes) team.notes = Array(18).fill("");
 
     const total = calculateTotal(team.scores, course.holes);
 
@@ -147,6 +216,7 @@ if (team && (!team.scores || !team.notes)) {
                   ) : (
                     "-"
                   )}
+                    
                 </td>
                 <td className="p-2 border">
                   <input
@@ -171,6 +241,18 @@ if (team && (!team.scores || !team.notes)) {
       <div className="min-h-screen bg-gray-50 p-4 sm:p-6 font-serif">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-3xl font-bold text-green-800 mb-4">Scorecard</h1>
+          
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
+              {error}
+              <button 
+                className="ml-2 font-bold"
+                onClick={() => setError("")}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           <div className="mb-4">
             <label className="block font-medium mb-1">Select Tournament</label>
@@ -179,6 +261,7 @@ if (team && (!team.scores || !team.notes)) {
               onChange={(e) => {
                 setSelectedTournament(e.target.value);
                 setSelectedTeamName(null);
+                localStorage.setItem("selected-tournament", e.target.value);
               }}
               className="w-full p-2 border rounded"
             >
@@ -194,7 +277,10 @@ if (team && (!team.scores || !team.notes)) {
               <label className="block font-medium mb-1">Select Team</label>
               <select
                 value={selectedTeamName || ""}
-                onChange={(e) => setSelectedTeamName(e.target.value)}
+                onChange={(e) => {
+                  setSelectedTeamName(e.target.value);
+                  localStorage.setItem("focused-team-name", e.target.value);
+                }}
                 className="w-full p-2 border rounded"
               >
                 <option value="" disabled>Select team</option>
@@ -213,4 +299,3 @@ if (team && (!team.scores || !team.notes)) {
 };
 
 export default ScorecardPage;
-// test comment
