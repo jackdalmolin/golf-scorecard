@@ -1,0 +1,18 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap');
+
+body {
+  @apply font-serif bg-white text-gray-900; /* Replace 'font-masters' with a valid Tailwind class */
+}
+
+
+/* Hide number input arrows in all browsers */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield; /* Firefox */
+}
