@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "./components/Navbar.jsx";
 import { db } from "./firebase";
-import { ref, set, get, remove } from "firebase/database";
+import { ref, set } from "firebase/database";
 
 const defaultHoles = Array(18).fill(4);
 
@@ -10,23 +10,8 @@ const CreateMatch = () => {
   const navigate = useNavigate();
   const [courseName, setCourseName] = useState("");
   const [date, setDate] = useState("");
-  const [teams, setTeams] = useState(["", "", "", ""]);
+  const [teams, setTeams] = useState(["", "", "", "", "", "", "", ""]); // Changed from 4 to 8 empty strings
   const [error, setError] = useState("");
-  const [tournaments, setTournaments] = useState({});
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Fetch tournaments on component mount
-  useEffect(() => {
-    const fetchTournaments = async () => {
-      const tournamentsRef = ref(db, "tournaments");
-      const snapshot = await get(tournamentsRef);
-      if (snapshot.exists()) {
-        setTournaments(snapshot.val());
-      }
-    };
-
-    fetchTournaments();
-  }, []);
 
   const handleCreate = async () => {
     if (!courseName || !date) {
@@ -62,27 +47,6 @@ const CreateMatch = () => {
     }
   };
 
-  const handleDelete = async (tournamentName) => {
-    if (window.confirm(`Are you sure you want to delete "${tournamentName}"? This action cannot be undone.`)) {
-      try {
-        await remove(ref(db, `tournaments/${tournamentName}`));
-        
-        // Update local state to remove the deleted tournament
-        const updatedTournaments = { ...tournaments };
-        delete updatedTournaments[tournamentName];
-        setTournaments(updatedTournaments);
-        
-        // If the deleted tournament was selected, clear localStorage
-        if (localStorage.getItem("selected-tournament") === tournamentName) {
-          localStorage.removeItem("selected-tournament");
-        }
-      } catch (err) {
-        console.error("Error deleting tournament:", err);
-        setError("Failed to delete tournament.");
-      }
-    }
-  };
-
   return (
     <>
       <Navbar />
@@ -112,7 +76,7 @@ const CreateMatch = () => {
         </div>
 
         <div className="mb-6">
-          <label className="block font-medium mb-2">Teams (up to 4)</label>
+          <label className="block font-medium mb-2">Teams (up to 8)</label>
           {teams.map((team, idx) => (
             <input
               key={idx}
@@ -135,38 +99,6 @@ const CreateMatch = () => {
         >
           Create Tournament
         </button>
-
-        <div className="mt-12 border-t pt-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-bold mb-4">Manage Tournaments</h2>
-            <button
-              onClick={() => setIsDeleting(!isDeleting)}
-              className="text-sm font-medium py-1 px-3 rounded bg-gray-100 hover:bg-gray-200 mb-4"
-            >
-              {isDeleting ? "Cancel" : "Toggle Delete Mode"}
-            </button>
-          </div>
-          
-          {Object.keys(tournaments).length === 0 ? (
-            <p className="text-gray-500">No tournaments found.</p>
-          ) : (
-            <div className="space-y-2">
-              {Object.keys(tournaments).map((name) => (
-                <div key={name} className="flex justify-between items-center p-3 border rounded bg-gray-50">
-                  <span>{name}</span>
-                  {isDeleting && (
-                    <button
-                      onClick={() => handleDelete(name)}
-                      className="text-white bg-red-500 hover:bg-red-600 py-1 px-3 rounded text-sm"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
     </>
   );
